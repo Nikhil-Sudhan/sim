@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+build/
+FPVDroneSim.spec
+
+.claude/
