@@ -9,6 +9,7 @@ class Gate:
         self.half_w = half_w
         self.half_h = half_h
         self.thickness = thickness
+        self.passed = False  # set True once the drone flies through the opening
 
 
 def generate_random_gates(n=5, z_spacing=15.0, z_start=15.0):

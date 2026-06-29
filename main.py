@@ -1,4 +1,5 @@
 import threading
+import time
 
 import pygame
 
@@ -7,6 +8,10 @@ from gates import generate_random_gates
 from physics import update as physics_update
 from renderer import Renderer, RESET_BUTTON_RECT
 from api import create_app
+
+# Cap JPEG encoding at 30 Hz. Encoding a 640x480 JPEG on every 60 Hz frame
+# (whether or not anyone is watching) was a big chunk of the old stutter.
+ENCODE_INTERVAL = 1.0 / 30.0
 
 
 def run_api(state, get_frame_bytes):
@@ -24,6 +29,10 @@ def main():
 
     clock = pygame.time.Clock()
     running = True
+    last_encode = 0.0
+    # Encode the very first frame so an early /frame poll isn't empty.
+    state.set_frame_bytes(renderer.frame_to_bytes())
+
     while running:
         dt = min(clock.tick(60) / 1000.0, 0.05)
 
@@ -39,7 +48,11 @@ def main():
 
         physics_update(state, dt)
         renderer.render(state)
-        state.set_frame_bytes(renderer.frame_to_bytes())
+
+        now = time.monotonic()
+        if (now - last_encode) >= ENCODE_INTERVAL and state.client_wants_frame(now):
+            state.set_frame_bytes(renderer.frame_to_bytes())
+            last_encode = now
 
     pygame.quit()
 

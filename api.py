@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, Response
 
 from gates import generate_random_gates
+from renderer import WIDTH, HEIGHT, FOV_DEG, FOCAL_PX
 
 
 def create_app(state, get_frame_bytes):
@@ -26,11 +27,27 @@ def create_app(state, get_frame_bytes):
 
     @app.get("/frame")
     def frame():
+        state.note_frame_request()
         data = get_frame_bytes()
         return Response(data, mimetype="image/jpeg")
 
     @app.get("/status")
     def status():
         return jsonify(state.snapshot_status())
+
+    @app.get("/gates")
+    def gates():
+        # Ground-truth gate geometry + camera intrinsics. The vision client
+        # uses the intrinsics for analytic distance and the geometry to score
+        # how accurate its SAM/YOLO obstacle-center estimate is.
+        return jsonify({
+            "camera": {
+                "width": WIDTH,
+                "height": HEIGHT,
+                "fov_deg": FOV_DEG,
+                "focal_px": FOCAL_PX,
+            },
+            "gates": state.snapshot_gates(),
+        })
 
     return app

@@ -7,6 +7,10 @@ WIDTH, HEIGHT = 640, 480
 FOV_DEG = 90.0
 NEAR_CLIP = 0.3
 
+# Pinhole focal length in pixels for the rendered camera. The vision client
+# uses this (via /gates) to turn an apparent gate width into a real distance.
+FOCAL_PX = (WIDTH / 2.0) / math.tan(math.radians(FOV_DEG) / 2.0)
+
 SKY_TOP = (110, 170, 230)
 SKY_HORIZON = (190, 220, 240)
 GROUND_NEAR = (60, 130, 60)
@@ -22,15 +26,31 @@ CRASH_COLOR = (220, 40, 40)
 RESET_BUTTON_RECT = pygame.Rect(WIDTH - 110, 10, 100, 36)
 
 
+def _build_background():
+    """Pre-render the static sky/ground gradient once (not per frame)."""
+    surf = pygame.Surface((WIDTH, HEIGHT))
+    half = HEIGHT // 2
+    for i in range(half):
+        t = i / max(1, half)
+        color = [int(SKY_TOP[c] + (SKY_HORIZON[c] - SKY_TOP[c]) * t) for c in range(3)]
+        pygame.draw.line(surf, color, (0, i), (WIDTH, i))
+    for i in range(half, HEIGHT):
+        t = (i - half) / max(1, HEIGHT - half)
+        color = [int(GROUND_NEAR[c] + (GROUND_FAR[c] - GROUND_NEAR[c]) * (1 - t)) for c in range(3)]
+        pygame.draw.line(surf, color, (0, i), (WIDTH, i))
+    return surf
+
+
 class Renderer:
     def __init__(self):
         pygame.init()
         pygame.font.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("FPV Drone Racing Sim")
-        self.font = pygame.font.SysFont("consolas", 18)
+        self.font = pygame.font.SysFont("consolas", 16)
         self.big_font = pygame.font.SysFont("consolas", 36, bold=True)
-        self.focal = (WIDTH / 2.0) / math.tan(math.radians(FOV_DEG) / 2.0)
+        self.focal = FOCAL_PX
+        self.background = _build_background()
 
     def project(self, point, cam_pos, cam_yaw):
         rel_x = point[0] - cam_pos[0]
@@ -49,17 +69,6 @@ class Renderer:
         sx = WIDTH / 2.0 + (cx / cz) * self.focal
         sy = HEIGHT / 2.0 - (cy / cz) * self.focal
         return (sx, sy, cz)
-
-    def draw_background(self):
-        half = HEIGHT // 2
-        for i in range(half):
-            t = i / max(1, half)
-            color = [int(SKY_TOP[c] + (SKY_HORIZON[c] - SKY_TOP[c]) * t) for c in range(3)]
-            pygame.draw.line(self.screen, color, (0, i), (WIDTH, i))
-        for i in range(half, HEIGHT):
-            t = (i - half) / max(1, HEIGHT - half)
-            color = [int(GROUND_NEAR[c] + (GROUND_FAR[c] - GROUND_NEAR[c]) * (1 - t)) for c in range(3)]
-            pygame.draw.line(self.screen, color, (0, i), (WIDTH, i))
 
     def draw_ground_grid(self, cam_pos, cam_yaw):
         for z in range(0, 120, 10):
@@ -115,9 +124,11 @@ class Renderer:
             gates = list(state.gates)
             crashed = state.crashed
             crash_count = state.crash_count
+            gates_passed = state.gates_passed
             pos_copy = tuple(state.pos)
+            speed = math.sqrt(sum(v * v for v in state.vel))
 
-        self.draw_background()
+        self.screen.blit(self.background, (0, 0))
         self.draw_ground_grid(cam_pos, cam_yaw)
 
         drawables = []
@@ -131,7 +142,7 @@ class Renderer:
                 pygame.draw.polygon(self.screen, GATE_COLOR, quad)
                 pygame.draw.polygon(self.screen, GATE_EDGE_COLOR, quad, 1)
 
-        self.draw_hud(pos_copy, cam_yaw, crash_count)
+        self.draw_hud(pos_copy, cam_yaw, speed, crash_count, gates_passed)
 
         if crashed:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -151,15 +162,15 @@ class Renderer:
 
         pygame.display.flip()
 
-    def draw_hud(self, pos, yaw, crash_count):
+    def draw_hud(self, pos, yaw, speed, crash_count, gates_passed):
         lines = [
             f"X: {pos[0]:6.2f}  Y: {pos[1]:6.2f}  Z: {pos[2]:6.2f}",
-            f"YAW: {math.degrees(yaw):6.1f} deg",
-            f"CRASHES: {crash_count}",
+            f"YAW: {math.degrees(yaw):6.1f} deg   SPD: {speed:5.2f} m/s",
+            f"GATES: {gates_passed}   CRASHES: {crash_count}",
         ]
         for i, line in enumerate(lines):
             surf = self.font.render(line, True, HUD_COLOR)
-            self.screen.blit(surf, (10, 10 + i * 22))
+            self.screen.blit(surf, (10, 10 + i * 20))
 
     def frame_to_bytes(self):
         buf = io.BytesIO()
